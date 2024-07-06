@@ -24,6 +24,7 @@ func main() {
 	outputFile := flag.String("outputFile", "mergedData.csv", "Output file to write to")
 	migrationFile := flag.String("migrationFile", "mergedData.csv", "Migration file to read from")
 	migrationOutputFile := flag.String("MigrateOutputFile", "migrationData.csv", "Migration Output file to write to")
+	originProvider := flag.String("provider", "", "The payment processor the client file is originating from")
 	tz := flag.String("timezone", "America/Halifax", "Time zone")
 	flag.Parse()
 
@@ -41,7 +42,9 @@ func main() {
 		MigrationOutputFileName: *migrationOutputFile,
 		Location:                loc,
 		BaseDir:                 baseDir,
+		Provider:                *originProvider,
 	}
+
 	if *merge {
 		h.Merge()
 	}

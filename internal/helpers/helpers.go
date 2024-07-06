@@ -27,40 +27,41 @@ type Helper struct {
 	Location                *time.Location
 	BaseDir                 string
 	Stage                   string
+	Provider                string
 }
 
 func (h Helper) Merge() {
-	cd := openCsv(h.BaseDir, h.ClientFileName)
-	sd := openCsv(h.BaseDir, h.StripeFileName)
+	clientFile := openCsv(h.BaseDir, h.ClientFileName)
+	stripeFile := openCsv(h.BaseDir, h.StripeFileName)
 
-	mf := mergeFiles(cd, sd, "c_", "s_", "CustomerId", "old id")
+	mergedFiles := mergeFiles(clientFile, stripeFile, "c_", "s_", "CustomerId", "old id")
 
-	writeCsv(h.BaseDir, mf, h.MergeOutputFileName)
+	writeCsv(h.BaseDir, mergedFiles, h.MergeOutputFileName)
 }
 
 func (h Helper) Migrate() {
-	mf := openCsv(h.BaseDir, h.MigrationInputFileName)
+	mergedFile := openCsv(h.BaseDir, h.MigrationInputFileName)
 
-	mif := h.migrateFile(mf)
+	migrationFile := h.migrateFile(mergedFile)
 
-	writeCsv(h.BaseDir, mif, h.MigrationOutputFileName)
+	writeCsv(h.BaseDir, migrationFile, h.MigrationOutputFileName)
 }
 
 func (h Helper) migrateFile(mf *CsvTable) *CsvTable {
-	hs := []string{"customer", "start_date", "price", "quantity", "automatic_tax", "billing_cycle_anchor", "coupon", "trial_end", "proration_behaviour", "collection_method", "cancel_at_period_end"}
+	requiredHeaders := []string{"customer", "start_date", "price", "quantity", "automatic_tax", "billing_cycle_anchor", "coupon", "trial_end", "proration_behaviour", "collection_method", "cancel_at_period_end"}
 
-	he := make(map[string]int)
-	for i, header := range hs {
-		he[header] = i
+	headers := make(map[string]int)
+	for i, header := range requiredHeaders {
+		headers[header] = i
 	}
-	rs := make([]map[string]string, 0, len(mf.Rows))
+	rows := make([]map[string]string, 0, len(mf.Rows))
 	for _, row := range parallel(mf.Rows) {
-		rs = append(rs, h.processRow(row))
+		rows = append(rows, h.processRow(row))
 	}
 
 	return &CsvTable{
-		Headers: he,
-		Rows:    rs,
+		Headers: headers,
+		Rows:    rows,
 	}
 }
 
@@ -69,12 +70,12 @@ func parallel[E any](events []E) iter.Seq2[int, E] {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		var wg sync.WaitGroup
-		wg.Add(len(events))
+		var waitGroup sync.WaitGroup
+		waitGroup.Add(len(events))
 
 		for idx, row := range events {
 			go func() {
-				defer wg.Done()
+				defer waitGroup.Done()
 
 				select {
 				case <-ctx.Done():
@@ -87,33 +88,33 @@ func parallel[E any](events []E) iter.Seq2[int, E] {
 			}()
 		}
 
-		wg.Wait()
+		waitGroup.Wait()
 	}
 }
 
 func (h Helper) processRow(row map[string]string) map[string]string {
 	fmt.Printf("Processing row for customer %v\n", row["c_CustomerId"])
-	var sds string
+	var startDateString string
 	if h.Stage == "production" {
-		sds = strconv.FormatInt(time.Now().In(h.Location).Add(time.Hour).UTC().Unix(), 10)
+		startDateString = strconv.FormatInt(time.Now().In(h.Location).Add(time.Hour).UTC().Unix(), 10)
 	} else if h.Stage == "development" {
-		sds = strconv.FormatInt(time.Now().In(h.Location).Add(time.Hour+time.Minute*30).UTC().Unix(), 10)
+		startDateString = strconv.FormatInt(time.Now().In(h.Location).Add(time.Hour+time.Minute*30).UTC().Unix(), 10)
 	}
 
-	bsad := getBillingCycleAnchorDate(row["c_StartDateISO"], row["c_BillingInterval"], row["c_NextBillingDateISO"], h.Location)
+	billingCycleAnchorDate := getBillingCycleAnchorDate(row["c_StartDateISO"], row["c_BillingInterval"], row["c_NextBillingDateISO"], h.Location)
 
-	var quan string
+	var quantity string
 	if val, ok := row["c_Quantity"]; ok {
-		quan = val
+		quantity = val
 	}
 
 	r := map[string]string{
 		"customer":             row["s_new id"],
-		"start_date":           sds,
+		"start_date":           startDateString,
 		"price":                "",
-		"quantity":             quan,
+		"quantity":             quantity,
 		"automatic_tax":        "false",
-		"billing_cycle_anchor": bsad,
+		"billing_cycle_anchor": billingCycleAnchorDate,
 		"coupon":               "",
 		"trial_end":            "",
 		"proration_behaviour":  "",
@@ -123,67 +124,67 @@ func (h Helper) processRow(row map[string]string) map[string]string {
 	return r
 }
 
-func getBillingCycleAnchorDate(sds, bci, nbds string, loc *time.Location) string {
-	mths := 0
-	yrs := 0
-	if strings.ToLower(bci) == "yearly" {
-		yrs++
-	} else if strings.ToLower(bci) == "monthly" {
-		mths++
+func getBillingCycleAnchorDate(startDateString, billingCycleInterval, nextBillDateString string, location *time.Location) string {
+	months := 0
+	years := 0
+	if strings.ToLower(billingCycleInterval) == "yearly" {
+		years++
+	} else if strings.ToLower(billingCycleInterval) == "monthly" {
+		months++
 	}
 
-	now := time.Now().In(loc)
+	now := time.Now().In(location)
 	//sd, err := time.ParseInLocation("YYYY/MM/DD", sds, loc)
 	//if err != nil {
 	//	fmt.Println(err)
 	//	os.Exit(1)
 	//}
-	nbd, err := time.ParseInLocation("2006/01/02", nbds, loc)
+	nextBillDate, err := time.ParseInLocation("2006/01/02", nextBillDateString, location)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	if now.After(nbd) {
-		nbd = nbd.AddDate(yrs, mths, 0)
+	if now.After(nextBillDate) {
+		nextBillDate = nextBillDate.AddDate(years, months, 0)
 	}
 
-	if now.AddDate(yrs, mths, 0).Before(nbd) {
-		nbd = now.AddDate(yrs, mths, 0)
+	if now.AddDate(years, months, 0).Before(nextBillDate) {
+		nextBillDate = now.AddDate(years, months, 0)
 	}
 
-	nbdU := strconv.FormatInt(time.Date(nbd.Year(), nbd.Month(), nbd.Day(), 0, 0, 0, 0, loc).UTC().Unix(), 10)
-	return nbdU
+	updatedNextBillDate := strconv.FormatInt(time.Date(nextBillDate.Year(), nextBillDate.Month(), nextBillDate.Day(), 0, 0, 0, 0, location).UTC().Unix(), 10)
+	return updatedNextBillDate
 }
 
 func csvFileToSlice(c *CsvTable) [][]string {
-	s := make([][]string, len(c.Rows)+1)
+	csvSlice := make([][]string, len(c.Rows)+1)
 
 	headers := make([]string, 0, len(c.Headers))
 	for header := range c.Headers {
 		headers = append(headers, header)
 	}
-	s[0] = headers
+	csvSlice[0] = headers
 
 	for i, row := range c.Rows {
-		s[i+1] = make([]string, len(headers))
+		csvSlice[i+1] = make([]string, len(headers))
 		for j, header := range headers {
-			s[i+1][j] = row[header]
+			csvSlice[i+1][j] = row[header]
 		}
 	}
 
-	return s
+	return csvSlice
 }
 
-func writeCsv(baseDir string, c *CsvTable, ofn string) {
-	p := filepath.Join(baseDir, "data", ofn)
-	fw, err := os.Create(p)
+func writeCsv(baseDir string, c *CsvTable, originalFileName string) {
+	path := filepath.Join(baseDir, "data", originalFileName)
+	fileWriter, err := os.Create(path)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	cw := csv.NewWriter(fw)
+	cw := csv.NewWriter(fileWriter)
 	defer cw.Flush()
 
 	cs := csvFileToSlice(c)
@@ -196,9 +197,9 @@ func writeCsv(baseDir string, c *CsvTable, ofn string) {
 	}
 }
 
-func newCsvTable(h []string, rows [][]string) *CsvTable {
+func newCsvTable(headers []string, rows [][]string) *CsvTable {
 	headerMap := make(map[string]int)
-	for i, header := range h {
+	for i, header := range headers {
 		headerMap[header] = i
 	}
 
@@ -216,9 +217,9 @@ func newCsvTable(h []string, rows [][]string) *CsvTable {
 	}
 }
 
-func openCsv(bd, f string) *CsvTable {
-	f = filepath.Join(bd, "data", f)
-	file, err := os.Open(f)
+func openCsv(baseDir, fileName string) *CsvTable {
+	filePath := filepath.Join(baseDir, "data", fileName)
+	file, err := os.Open(filePath)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -229,14 +230,14 @@ func openCsv(bd, f string) *CsvTable {
 		}
 	}(file)
 
-	r := csv.NewReader(file)
-	headers, err := r.Read()
+	reader := csv.NewReader(file)
+	headers, err := reader.Read()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	allRows, err := r.ReadAll()
+	allRows, err := reader.ReadAll()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -245,30 +246,30 @@ func openCsv(bd, f string) *CsvTable {
 	return newCsvTable(headers, allRows)
 }
 
-func mergeFiles(cd *CsvTable, sd *CsvTable, cdPre string, sdPre string, cdId string, sdId string) *CsvTable {
+func mergeFiles(clientData *CsvTable, stripeData *CsvTable, clientPrepend string, stripePrepend string, clientId string, stripeId string) *CsvTable {
 	headerMap := make(map[string]int)
-	for header, i := range cd.Headers {
-		headerMap[cdPre+header] = i
+	for header, i := range clientData.Headers {
+		headerMap[clientPrepend+header] = i
 	}
-	for header := range sd.Headers {
-		headerMap[sdPre+header] = len(headerMap)
+	for header := range stripeData.Headers {
+		headerMap[stripePrepend+header] = len(headerMap)
 	}
 
 	sdMap := make(map[string]map[string]string)
-	for _, row := range sd.Rows {
-		sdMap[row[sdId]] = row
+	for _, row := range stripeData.Rows {
+		sdMap[row[stripeId]] = row
 	}
 
 	mr := make([]map[string]string, 0)
 
-	for _, cdRow := range cd.Rows {
-		if sdRow, ok := sdMap[cdRow[cdId]]; ok {
+	for _, cdRow := range clientData.Rows {
+		if sdRow, ok := sdMap[cdRow[clientId]]; ok {
 			nr := make(map[string]string)
 			for header, value := range cdRow {
-				nr[cdPre+header] = value
+				nr[clientPrepend+header] = value
 			}
 			for header, value := range sdRow {
-				nr[sdPre+header] = value
+				nr[stripePrepend+header] = value
 			}
 			mr = append(mr, nr)
 		}
