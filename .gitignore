@@ -22,4 +22,5 @@ go.work
 go.work.sum
 
 # data directory
-./data/*
+/data/*
+!/data/
