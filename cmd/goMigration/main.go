@@ -3,9 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/tillter/goMigration/internal/helpers"
 	"os"
 	"time"
+
+	"github.com/tillter/goMigration/internal/helpers"
 )
 
 func main() {
@@ -14,15 +15,15 @@ func main() {
 		panic(err)
 	}
 
-	m := flag.Bool("merge", false, "Merge client and stripe data")
-	mig := flag.Bool("migrate", false, "Migrate data")
-	pMig := flag.Bool("post-migrate", false, "Migrate data")
+	merge := flag.Bool("merge", false, "Merge client and stripe data")
+	migrate := flag.Bool("migrate", false, "Migrate data")
+	postMigration := flag.Bool("post-migrate", false, "Migrate data")
 
-	cfn := flag.String("clientFile", "clientData.csv", "Client file to read from")
-	sfn := flag.String("stripeFile", "stripeData.csv", "Stripe file to read from")
-	ofn := flag.String("outputFile", "mergedData.csv", "Output file to write to")
-	mfn := flag.String("migrationFile", "mergedData.csv", "Migration file to read from")
-	mofn := flag.String("MigrateOutputFile", "migrationData.csv", "Migration Output file to write to")
+	clientFile := flag.String("clientFile", "clientData.csv", "Client file to read from")
+	stripeFile := flag.String("stripeFile", "stripeData.csv", "Stripe file to read from")
+	outputFile := flag.String("outputFile", "mergedData.csv", "Output file to write to")
+	migrationFile := flag.String("migrationFile", "mergedData.csv", "Migration file to read from")
+	migrationOutputFile := flag.String("MigrateOutputFile", "migrationData.csv", "Migration Output file to write to")
 	tz := flag.String("timezone", "America/Halifax", "Time zone")
 	flag.Parse()
 
@@ -33,22 +34,22 @@ func main() {
 	}
 
 	h := helpers.Helper{
-		ClientFileName:          *cfn,
-		StripeFileName:          *sfn,
-		MergeOutputFileName:     *ofn,
-		MigrationInputFileName:  *mfn,
-		MigrationOutputFileName: *mofn,
+		ClientFileName:          *clientFile,
+		StripeFileName:          *stripeFile,
+		MergeOutputFileName:     *outputFile,
+		MigrationInputFileName:  *migrationFile,
+		MigrationOutputFileName: *migrationOutputFile,
 		Location:                loc,
 		BaseDir:                 baseDir,
 	}
-	if *m {
+	if *merge {
 		h.Merge()
 	}
 
-	if *mig {
+	if *migrate {
 		h.Migrate()
 	}
 
-	if *pMig {
+	if *postMigration {
 	}
 }
