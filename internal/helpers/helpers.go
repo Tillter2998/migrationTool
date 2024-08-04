@@ -19,32 +19,36 @@ type CsvTable struct {
 }
 
 type Helper struct {
-	ClientFileName          string
-	StripeFileName          string
-	MergeOutputFileName     string
-	MigrationInputFileName  string
-	MigrationOutputFileName string
-	Location                *time.Location
-	BaseDir                 string
-	Stage                   string
-	Provider                string
+	ClientFileName string
+	StripeFileName string
+	Location       *time.Location
+	Provider       string
+	Action         string
 }
 
+var (
+	mergeOutputFileName   = "mergedData.csv"
+	migrateOutputFileName = "migratedDate.csv"
+)
+
 func (h Helper) Merge() {
-	clientFile := openCsv(h.BaseDir, h.ClientFileName)
-	stripeFile := openCsv(h.BaseDir, h.StripeFileName)
+	clientFile := openCsv(h.ClientFileName)
+	stripeFile := openCsv(h.StripeFileName)
+
+	fmt.Println("CLIENT", clientFile)
+	fmt.Println("STRIPE", stripeFile)
 
 	mergedFiles := mergeFiles(clientFile, stripeFile, "c_", "s_", "CustomerId", "old id")
 
-	writeCsv(h.BaseDir, mergedFiles, h.MergeOutputFileName)
+	writeCsv(mergedFiles, mergeOutputFileName)
 }
 
 func (h Helper) Migrate() {
-	mergedFile := openCsv(h.BaseDir, h.MigrationInputFileName)
+	mergedFile := openCsv(mergeOutputFileName)
 
 	migrationFile := h.migrateFile(mergedFile)
 
-	writeCsv(h.BaseDir, migrationFile, h.MigrationOutputFileName)
+	writeCsv(migrationFile, migrateOutputFileName)
 }
 
 func (h Helper) migrateFile(mf *CsvTable) *CsvTable {
@@ -95,11 +99,7 @@ func parallel[E any](events []E) iter.Seq2[int, E] {
 func (h Helper) processRow(row map[string]string) map[string]string {
 	fmt.Printf("Processing row for customer %v\n", row["c_CustomerId"])
 	var startDateString string
-	if h.Stage == "production" {
-		startDateString = strconv.FormatInt(time.Now().In(h.Location).Add(time.Hour).UTC().Unix(), 10)
-	} else if h.Stage == "development" {
-		startDateString = strconv.FormatInt(time.Now().In(h.Location).Add(time.Hour+time.Minute*30).UTC().Unix(), 10)
-	}
+	startDateString = strconv.FormatInt(time.Now().In(h.Location).Add(time.Hour).UTC().Unix(), 10)
 
 	billingCycleAnchorDate := getBillingCycleAnchorDate(row["c_StartDateISO"], row["c_BillingInterval"], row["c_NextBillingDateISO"], h.Location)
 
@@ -176,8 +176,8 @@ func csvFileToSlice(c *CsvTable) [][]string {
 	return csvSlice
 }
 
-func writeCsv(baseDir string, c *CsvTable, originalFileName string) {
-	path := filepath.Join(baseDir, "data", originalFileName)
+func writeCsv(c *CsvTable, outputFileName string) {
+	path := filepath.Join("../../data", outputFileName)
 	fileWriter, err := os.Create(path)
 	if err != nil {
 		fmt.Println(err)
@@ -198,27 +198,28 @@ func writeCsv(baseDir string, c *CsvTable, originalFileName string) {
 }
 
 func newCsvTable(headers []string, rows [][]string) *CsvTable {
-	headerMap := make(map[string]int)
+	mergedHeaders := make(map[string]int)
 	for i, header := range headers {
-		headerMap[header] = i
+		mergedHeaders[header] = i
 	}
 
 	tableRows := make([]map[string]string, 0, len(rows))
 	for _, row := range rows {
 		rowMap := make(map[string]string)
-		for key, index := range headerMap {
+		for key, index := range mergedHeaders {
 			rowMap[key] = row[index]
 		}
 		tableRows = append(tableRows, rowMap)
 	}
 	return &CsvTable{
-		Headers: headerMap,
+		Headers: mergedHeaders,
 		Rows:    tableRows,
 	}
 }
 
-func openCsv(baseDir, fileName string) *CsvTable {
-	filePath := filepath.Join(baseDir, "data", fileName)
+func openCsv(fileName string) *CsvTable {
+	filePath := filepath.Join("../../data", fileName)
+	fmt.Println("FILEPATH:", filePath)
 	file, err := os.Open(filePath)
 	if err != nil {
 		fmt.Println(err)
@@ -247,12 +248,12 @@ func openCsv(baseDir, fileName string) *CsvTable {
 }
 
 func mergeFiles(clientData *CsvTable, stripeData *CsvTable, clientPrepend string, stripePrepend string, clientId string, stripeId string) *CsvTable {
-	headerMap := make(map[string]int)
+	mergedHeaders := make(map[string]int)
 	for header, i := range clientData.Headers {
-		headerMap[clientPrepend+header] = i
+		mergedHeaders[clientPrepend+header] = i
 	}
 	for header := range stripeData.Headers {
-		headerMap[stripePrepend+header] = len(headerMap)
+		mergedHeaders[stripePrepend+header] = len(mergedHeaders)
 	}
 
 	sdMap := make(map[string]map[string]string)
@@ -260,23 +261,23 @@ func mergeFiles(clientData *CsvTable, stripeData *CsvTable, clientPrepend string
 		sdMap[row[stripeId]] = row
 	}
 
-	mr := make([]map[string]string, 0)
+	mergedRows := make([]map[string]string, 0)
 
 	for _, cdRow := range clientData.Rows {
 		if sdRow, ok := sdMap[cdRow[clientId]]; ok {
-			nr := make(map[string]string)
+			newRow := make(map[string]string)
 			for header, value := range cdRow {
-				nr[clientPrepend+header] = value
+				newRow[clientPrepend+header] = value
 			}
 			for header, value := range sdRow {
-				nr[stripePrepend+header] = value
+				newRow[stripePrepend+header] = value
 			}
-			mr = append(mr, nr)
+			mergedRows = append(mergedRows, newRow)
 		}
 	}
 
 	return &CsvTable{
-		Headers: headerMap,
-		Rows:    mr,
+		Headers: mergedHeaders,
+		Rows:    mergedRows,
 	}
 }

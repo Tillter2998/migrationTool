@@ -1,58 +1,89 @@
 package main
 
 import (
-	"flag"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
+	"github.com/charmbracelet/huh"
 	"github.com/tillter/goMigration/internal/helpers"
 )
 
 func main() {
-	baseDir, err := os.Getwd() // This gets the current working directory
+	var action string
+	var provider string
+	var clientFile string
+	var stripeFile string
+	var timezone string
+	var loc *time.Location
+
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Action").
+				Options(
+					huh.NewOption("Merge Files", "merge"),
+					huh.NewOption("Migrate Subscriptions", "migrate"),
+				).
+				Value(&action),
+		),
+	)
+
+	err := form.Run()
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	merge := flag.Bool("merge", false, "Merge client and stripe data")
-	migrate := flag.Bool("migrate", false, "Migrate data")
-	postMigration := flag.Bool("post-migrate", false, "Migrate data")
+	var merge bool
+	var migrate bool
 
-	clientFile := flag.String("clientFile", "clientData.csv", "Client file to read from")
-	stripeFile := flag.String("stripeFile", "stripeData.csv", "Stripe file to read from")
-	outputFile := flag.String("outputFile", "mergedData.csv", "Output file to write to")
-	migrationFile := flag.String("migrationFile", "mergedData.csv", "Migration file to read from")
-	migrationOutputFile := flag.String("MigrateOutputFile", "migrationData.csv", "Migration Output file to write to")
-	originProvider := flag.String("provider", "", "The payment processor the client file is originating from")
-	tz := flag.String("timezone", "America/Halifax", "Time zone")
-	flag.Parse()
+	switch action {
+	case "merge":
+		err = huh.NewInput().
+			Title("Client Data Input File Name:").
+			Value(&clientFile).
+			Run()
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	loc, err := time.LoadLocation(*tz)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		err = huh.NewInput().
+			Title("Stripe Data Input File Name:").
+			Value(&stripeFile).
+			Run()
+		merge = true
+	case "migrate":
+		err = huh.NewSelect[string]().
+			Title("Select Migration Timezone").
+			Options(
+				huh.NewOption("Atlantic Time", "America/Halifax"),
+				huh.NewOption("Eastern Time", "America/Toronto"),
+			).
+			Value(&timezone).
+			Run()
+
+		loc, err = time.LoadLocation(timezone)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		migrate = true
 	}
 
 	h := helpers.Helper{
-		ClientFileName:          *clientFile,
-		StripeFileName:          *stripeFile,
-		MergeOutputFileName:     *outputFile,
-		MigrationInputFileName:  *migrationFile,
-		MigrationOutputFileName: *migrationOutputFile,
-		Location:                loc,
-		BaseDir:                 baseDir,
-		Provider:                *originProvider,
+		ClientFileName: clientFile,
+		StripeFileName: stripeFile,
+		Location:       loc,
+		Provider:       provider,
+		Action:         action,
 	}
 
-	if *merge {
+	if merge {
 		h.Merge()
 	}
 
-	if *migrate {
+	if migrate {
 		h.Migrate()
-	}
-
-	if *postMigration {
 	}
 }
