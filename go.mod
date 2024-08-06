@@ -4,6 +4,7 @@ go 1.22.3
 
 require (
 	github.com/charmbracelet/huh v0.5.2
+	github.com/charmbracelet/huh/spinner v0.0.0-20240806005253-b7436a76999a
 	github.com/stretchr/testify v1.9.0
 )
 

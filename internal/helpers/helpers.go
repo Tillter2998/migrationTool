@@ -18,40 +18,29 @@ type CsvTable struct {
 	Rows    []map[string]string
 }
 
-type Helper struct {
-	ClientFileName string
-	StripeFileName string
-	Location       *time.Location
-	Provider       string
-	Action         string
-}
-
 var (
 	mergeOutputFileName   = "mergedData.csv"
 	migrateOutputFileName = "migratedDate.csv"
 )
 
-func (h Helper) Merge() {
-	clientFile := openCsv(h.ClientFileName)
-	stripeFile := openCsv(h.StripeFileName)
-
-	fmt.Println("CLIENT", clientFile)
-	fmt.Println("STRIPE", stripeFile)
+func Merge(clientFileName string, stripeFileName string) {
+	clientFile := openCsv(clientFileName)
+	stripeFile := openCsv(stripeFileName)
 
 	mergedFiles := mergeFiles(clientFile, stripeFile, "c_", "s_", "CustomerId", "old id")
 
 	writeCsv(mergedFiles, mergeOutputFileName)
 }
 
-func (h Helper) Migrate() {
+func Migrate(location *time.Location) {
 	mergedFile := openCsv(mergeOutputFileName)
 
-	migrationFile := h.migrateFile(mergedFile)
+	migrationFile := migrateFile(mergedFile, location)
 
 	writeCsv(migrationFile, migrateOutputFileName)
 }
 
-func (h Helper) migrateFile(mf *CsvTable) *CsvTable {
+func migrateFile(mf *CsvTable, location *time.Location) *CsvTable {
 	requiredHeaders := []string{"customer", "start_date", "price", "quantity", "automatic_tax", "billing_cycle_anchor", "coupon", "trial_end", "proration_behaviour", "collection_method", "cancel_at_period_end"}
 
 	headers := make(map[string]int)
@@ -60,7 +49,7 @@ func (h Helper) migrateFile(mf *CsvTable) *CsvTable {
 	}
 	rows := make([]map[string]string, 0, len(mf.Rows))
 	for _, row := range parallel(mf.Rows) {
-		rows = append(rows, h.processRow(row))
+		rows = append(rows, processRow(row, location))
 	}
 
 	return &CsvTable{
@@ -96,12 +85,12 @@ func parallel[E any](events []E) iter.Seq2[int, E] {
 	}
 }
 
-func (h Helper) processRow(row map[string]string) map[string]string {
+func processRow(row map[string]string, location *time.Location) map[string]string {
 	fmt.Printf("Processing row for customer %v\n", row["c_CustomerId"])
 	var startDateString string
-	startDateString = strconv.FormatInt(time.Now().In(h.Location).Add(time.Hour).UTC().Unix(), 10)
+	startDateString = strconv.FormatInt(time.Now().In(location).Add(time.Hour).UTC().Unix(), 10)
 
-	billingCycleAnchorDate := getBillingCycleAnchorDate(row["c_StartDateISO"], row["c_BillingInterval"], row["c_NextBillingDateISO"], h.Location)
+	billingCycleAnchorDate := getBillingCycleAnchorDate(row["c_StartDateISO"], row["c_BillingInterval"], row["c_NextBillingDateISO"], location)
 
 	var quantity string
 	if val, ok := row["c_Quantity"]; ok {
@@ -219,7 +208,6 @@ func newCsvTable(headers []string, rows [][]string) *CsvTable {
 
 func openCsv(fileName string) *CsvTable {
 	filePath := filepath.Join("../../data", fileName)
-	fmt.Println("FILEPATH:", filePath)
 	file, err := os.Open(filePath)
 	if err != nil {
 		fmt.Println(err)

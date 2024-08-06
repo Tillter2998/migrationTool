@@ -7,16 +7,12 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/huh/spinner"
 	"github.com/tillter/goMigration/internal/helpers"
 )
 
 func main() {
 	var action string
-	var provider string
-	var clientFile string
-	var stripeFile string
-	var timezone string
-	var loc *time.Location
 
 	form := huh.NewForm(
 		huh.NewGroup(
@@ -35,14 +31,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var merge bool
-	var migrate bool
-
 	switch action {
 	case "merge":
+		var clientFileName string
+		var stripeFileName string
+
 		err = huh.NewInput().
 			Title("Client Data Input File Name:").
-			Value(&clientFile).
+			Value(&clientFileName).
 			Run()
 		if err != nil {
 			log.Fatal(err)
@@ -50,10 +46,17 @@ func main() {
 
 		err = huh.NewInput().
 			Title("Stripe Data Input File Name:").
-			Value(&stripeFile).
+			Value(&stripeFileName).
 			Run()
-		merge = true
+		err := spinner.New().
+			Title("Merging Files").
+			Action(func() { helpers.Merge(clientFileName, stripeFileName) }).
+			Run()
+		if err != nil {
+			log.Fatal(err)
+		}
 	case "migrate":
+		var timezone string
 		err = huh.NewSelect[string]().
 			Title("Select Migration Timezone").
 			Options(
@@ -63,27 +66,17 @@ func main() {
 			Value(&timezone).
 			Run()
 
-		loc, err = time.LoadLocation(timezone)
+		h.Location, err = time.LoadLocation(timezone)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
-		migrate = true
-	}
-
-	h := helpers.Helper{
-		ClientFileName: clientFile,
-		StripeFileName: stripeFile,
-		Location:       loc,
-		Provider:       provider,
-		Action:         action,
-	}
-
-	if merge {
-		h.Merge()
-	}
-
-	if migrate {
-		h.Migrate()
+		err = spinner.New().
+			Title("Merging Files").
+			Action(h.Migrate).
+			Run()
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 }
